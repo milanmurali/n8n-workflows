@@ -1,0 +1,562 @@
+{
+  "name": "takashi",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -256,
+        -1280
+      ],
+      "id": "498a1ea2-7d0e-4f50-bea5-7567a6d4a4a9",
+      "name": "Telegram Trigger",
+      "webhookId": "77f352f4-50ab-4841-8eda-49d7e2242e9a",
+      "credentials": {
+        "telegramApi": {
+          "id": "gmMmD3RljEnITF6i",
+          "name": "takashibot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "qwen/qwen3-coder-480b-a35b-instruct",
+          "mode": "id"
+        },
+        "responsesApiEnabled": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -32,
+        -928
+      ],
+      "id": "cf089df8-7fdd-44ae-8e82-40f08d54c69a",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "oJZOZqHS1jo2yh0O",
+          "name": "OpenAI account NIM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output.toLowerCase();\n\ntry {\n  // Try direct parse first\n  return [JSON.parse(raw)];\n} catch (e) {\n  // Fallback: extract JSON\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  if (!match) throw new Error(\"No valid JSON found\");\n  return [JSON.parse(match[0])];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -1248
+      ],
+      "id": "a4dadd66-3d38-4367-9c61-0e77f55a5ff7",
+      "name": "JSON PARSE"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Extract structured data from the message.\n\nReturn ONLY valid JSON:\n\n{\n  \"intent\": \"save | query | unknown\",\n  \"category\": \"string\",\n  \"subject\": \"string or null\",\n  \"amount\": \"number or null\",\n  \"time\": \"string or null\",\n  \"note\": \"string or null\"\n}\n\nSTRICT RULES:\n\n1. Financial meaning:\n- \"owe\", \"borrowed\", \"took\" → intent = \"save\" (user owes someone)\n- \"paid\", \"gave\", \"sent\" → intent = \"save\" (user paid someone)\n- Questions → intent = \"query\"\n\n2. Subject extraction:\n- Subject MUST be the PERSON involved (e.g. \"Abex\")\n- NOT objects like \"dress\", \"food\", etc.\n\n3. Notes:\n- Extra context goes into \"note\"\n\n4. If unsure → intent = \"unknown\"\n\n5. DO NOT output markdown or code blocks\n\n---\n\nMessage:\n\"{{ $json.message.text }}\"",
+        "needsFallback": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -32,
+        -1152
+      ],
+      "id": "9ca9a0de-aad0-4c85-9493-edf90395e08b",
+      "name": "AI NLP",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $input.first().json.message.text.toLowerCase();\n\nconst queryWords = [\"how\", \"what\", \"when\", \"who\", \"where\", \"show\", \"can\"];\nconst saveWords = [\"owe\", \"paid\", \"borrowed\", \"gave\", \"sent\", \"took\"];\n\nconst hasQuestionMark = text.includes(\"?\");\nconst hasQueryWord = queryWords.some(w => text.includes(w));\nconst hasSaveWord = saveWords.some(w => text.includes(w));\n\nreturn [{\n  text,\n  isQuestion: hasQuestionMark || hasQueryWord,\n  isSaveHint: hasSaveWord\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -1472
+      ],
+      "id": "acfefd9e-0850-46e9-9956-c288a3db32cc",
+      "name": "Intent Check Fallback"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst intent = input.intent;\nconst isQuestion = input.isQuestion;\nconst isSaveHint = input.isSaveHint;\n\nlet finalIntent = intent;\n\n// fallback\nif (!intent || intent === \"unknown\") {\n  if (isQuestion) {\n    finalIntent = \"query\";\n  } else if (isSaveHint) {\n    finalIntent = \"save\";\n  } else {\n    finalIntent = \"unknown\";\n  }\n}\n\nreturn [{\n  ...input,\n  finalIntent\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -1376
+      ],
+      "id": "3105721c-1401-40f2-b3bb-d0cbaaca85eb",
+      "name": "COMBANASON"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        544,
+        -1376
+      ],
+      "id": "49e2d13e-36bd-4bbc-855e-b564066a697e",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "=Hmm, I couldn’t understand what you meant by \"{{ $('Telegram Trigger').item.json.message.text }}\".\nTry Again.\n",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1216,
+        -1472
+      ],
+      "id": "ff19c469-27a7-4982-aeeb-426e6ab19a59",
+      "name": "Error Response",
+      "webhookId": "b074155c-62c1-4e8a-9dc7-b7ff83b6d775",
+      "credentials": {
+        "telegramApi": {
+          "id": "gmMmD3RljEnITF6i",
+          "name": "takashibot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2d5f0c3a-7e5b-495d-9bbd-9325497c80a7",
+              "leftValue": "={{ $json.finalIntent }}",
+              "rightValue": "unknown",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        992,
+        -1376
+      ],
+      "id": "13d453b1-ecea-4013-8914-dd736426b622",
+      "name": "If Error"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "402f2aa3-a2c8-4570-a359-296cf5b0c00f",
+              "leftValue": "={{ $('COMBANASON').item.json.finalIntent }}",
+              "rightValue": "save",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1216,
+        -1280
+      ],
+      "id": "41b10671-c534-4034-959c-c2e8d930c967",
+      "name": "query or save"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nnewwfyuwyzdfattpptg.supabase.co/rest/v1/aamemory",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"apikey\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uZXd3Znl1d3l6ZGZhdHRwcHRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MjgwNDIsImV4cCI6MjA5MjAwNDA0Mn0.FwTJzg1ZDK8E45SaYkYVhMDPTIBy02lOYMd-NMhtmDk\",\n  \n  \"Authorization\": \"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uZXd3Znl1d3l6ZGZhdHRwcHRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MjgwNDIsImV4cCI6MjA5MjAwNDA0Mn0.FwTJzg1ZDK8E45SaYkYVhMDPTIBy02lOYMd-NMhtmDk\",\n  \n  \"Content-Type\": \"application/json\",\n  \n  \"Prefer\": \"return=minimal\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"category\": \"{{$json.category}}\",\n  \"subject\": \"{{$json.subject}}\",\n  \"value\": {{$json.amount || 0}},\n  \"note\": \"{{$json.note}}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1664,
+        -1376
+      ],
+      "id": "ccdfab18-a477-4076-9edd-fc025e8722db",
+      "name": "save post"
+    },
+    {
+      "parameters": {
+        "url": "=https://nnewwfyuwyzdfattpptg.supabase.co/rest/v1/aamemory?subject=eq.{{$json.subject}}&select=value",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"apikey\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uZXd3Znl1d3l6ZGZhdHRwcHRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MjgwNDIsImV4cCI6MjA5MjAwNDA0Mn0.FwTJzg1ZDK8E45SaYkYVhMDPTIBy02lOYMd-NMhtmDk\",\n  \n  \"Authorization\": \"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uZXd3Znl1d3l6ZGZhdHRwcHRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MjgwNDIsImV4cCI6MjA5MjAwNDA0Mn0.FwTJzg1ZDK8E45SaYkYVhMDPTIBy02lOYMd-NMhtmDk\",\n  \n  \"Content-Type\": \"application/json\",\n  \"Prefer\": \"return=representation\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1440,
+        -1184
+      ],
+      "id": "65232602-43cf-4a77-93d3-b3fb7555cc72",
+      "name": "query get"
+    },
+    {
+      "parameters": {
+        "jsCode": "let total = 0;\n\nconst subject = $('query or save').first().json.subject;\nconsole.log(subject)\n\nif (items.length === 0) {\n  return [{\n    subject,\n    total: 0,\n    isEmpty: true\n  }];\n}\n\nfor (const item of items) {\n  total += item.json.value || 0;\n}\n\nreturn [{\n  subject,\n  total,\n  isEmpty: false\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        -1184
+      ],
+      "id": "ea64cb71-a1d2-43a3-a24e-43e8b4c3b464",
+      "name": "sum"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $('query or save').item.json.amount >= 0 \n  ? `Saved ✔️\\n\\nNoted: You owe ${$('query or save').item.json.subject} ₹${$('query or save').item.json.amount}`\n  : `Saved ✔️\\n\\nNoted: You paid ${$('query or save').item.json.subject} ₹${Math.abs($('query or save').item.json.amount)}`\n}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1888,
+        -1376
+      ],
+      "id": "92c103c2-88e5-4251-9530-6daaf5507e18",
+      "name": "Save Response",
+      "webhookId": "b074155c-62c1-4e8a-9dc7-b7ff83b6d775",
+      "credentials": {
+        "telegramApi": {
+          "id": "gmMmD3RljEnITF6i",
+          "name": "takashibot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{$json.isEmpty \n  ? `I don’t have any records for ${$json.subject} yet 🤔`\n  : ($json.total > 0 \n      ? `You owe ${$json.subject} ₹${$json.total}`\n      : `You don't owe ${$json.subject} anything 🎉`)\n}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1888,
+        -1184
+      ],
+      "id": "7415884a-9a5b-4a33-afd7-06f5beee141b",
+      "name": "Query Response",
+      "webhookId": "b074155c-62c1-4e8a-9dc7-b7ff83b6d775",
+      "credentials": {
+        "telegramApi": {
+          "id": "gmMmD3RljEnITF6i",
+          "name": "takashibot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let amount = $json.amount || 0;\nconst text = ($json.text || \"\").toLowerCase();\n\n// payment → negative\nif (\n  text.includes(\"paid\") ||\n  text.includes(\"gave\") ||\n  text.includes(\"sent\") ||\n  text.includes(\"returned\")\n) {\n  amount = -Math.abs(amount);\n}\n\n// owe → positive\nif (\n  text.includes(\"owe\") ||\n  text.includes(\"borrowed\") ||\n  text.includes(\"took\")\n) {\n  amount = Math.abs(amount);\n}\n\nreturn [{\n  ...$json,\n  amount\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -1376
+      ],
+      "id": "ce344ce4-c9e8-4c32-bab4-6f8df1d2be16",
+      "name": "minuser"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "=Hmm, There seems to be some issue with the AI. It said \"{{ $json.error }}\".\nLet's Try Again.\n",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        -1056
+      ],
+      "id": "d3a736ac-5886-498e-a93f-f9c99ab5254b",
+      "name": "Ai error",
+      "webhookId": "b074155c-62c1-4e8a-9dc7-b7ff83b6d775",
+      "credentials": {
+        "telegramApi": {
+          "id": "gmMmD3RljEnITF6i",
+          "name": "takashibot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "google/gemma-3-4b-it",
+          "mode": "id"
+        },
+        "responsesApiEnabled": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        112,
+        -928
+      ],
+      "id": "6fbff97c-8241-4ae8-8296-14e07d540630",
+      "name": "fallback model",
+      "credentials": {
+        "openAiApi": {
+          "id": "oJZOZqHS1jo2yh0O",
+          "name": "OpenAI account NIM"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Intent Check Fallback",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI NLP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI NLP",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSON PARSE": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "AI NLP": {
+      "main": [
+        [
+          {
+            "node": "JSON PARSE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ai error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Check Fallback": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "COMBANASON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBANASON": {
+      "main": [
+        [
+          {
+            "node": "If Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Error": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "query or save",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query or save": {
+      "main": [
+        [
+          {
+            "node": "minuser",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "query get",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query get": {
+      "main": [
+        [
+          {
+            "node": "sum",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sum": {
+      "main": [
+        [
+          {
+            "node": "Query Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "save post": {
+      "main": [
+        [
+          {
+            "node": "Save Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "minuser": {
+      "main": [
+        [
+          {
+            "node": "save post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "fallback model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI NLP",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "965051c5-d917-4984-9f3b-5ca82db62bf2",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f5abad77e67a7bac0482e079803b7add3dadcdec03520f6e93af4219773a7065"
+  },
+  "id": "aGk3ls9l9fCD5FAR",
+  "tags": []
+}
